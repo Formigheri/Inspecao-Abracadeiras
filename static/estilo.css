@@ -1,0 +1,125 @@
+/* estilo.css - visual da página. Nada de framework, é CSS puro. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+header {
+  background: #1f3a5f;
+  color: #fff;
+  padding: 16px 24px;
+}
+header h1 { margin: 0; font-size: 1.4rem; }
+header p { margin: 4px 0 0; opacity: .8; font-size: .9rem; }
+
+/* duas colunas: vídeo à esquerda e painel de controle à direita */
+main {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+  padding: 20px 24px;
+}
+
+/* o canvas do círculo é posicionado por cima do vídeo */
+.moldura {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.moldura video, .moldura canvas {
+  display: block;
+  width: 100%;
+}
+.moldura canvas {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  pointer-events: none; /* deixa o clique "passar" pro vídeo */
+}
+
+.aviso { color: #b42318; min-height: 1.2em; margin: 8px 0 0; font-size: .9rem; }
+
+.painel { display: flex; flex-direction: column; gap: 14px; }
+
+.bloco {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+.bloco h2 { margin: 0 0 8px; font-size: 1rem; }
+.dica { margin: 0 0 10px; font-size: .85rem; color: #6b7280; }
+
+label { display: block; font-size: .85rem; margin-bottom: 10px; }
+input[type=number] {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: .95rem;
+}
+input[type=range] { width: 100%; margin-top: 4px; }
+.check { display: flex; align-items: center; gap: 6px; }
+.linha { display: flex; gap: 12px; align-items: flex-end; }
+.linha > label { flex: 1; }
+
+button {
+  background: #1f3a5f;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 14px;
+  font-size: .9rem;
+  cursor: pointer;
+}
+button:hover { background: #2a4d7d; }
+button:disabled { background: #9ca3af; cursor: not-allowed; }
+button.secundario { background: #e5e7eb; color: #1f2937; }
+button.secundario:hover:not(:disabled) { background: #d1d5db; }
+
+.estado { font-size: .85rem; color: #6b7280; margin: 8px 0 0; }
+.estado.ok { color: #067647; }
+
+/* caixa do resultado: muda de cor conforme a classe que o JS coloca */
+.resultado {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f3f4f6;
+}
+.resultado #valor { font-size: 2rem; font-weight: 600; }
+.resultado #veredito { font-weight: 700; letter-spacing: .5px; }
+.resultado.aprovada { background: #dcfae6; color: #067647; }
+.resultado.reprovada { background: #fee4e2; color: #b42318; }
+
+.historico {
+  margin: 0 24px 24px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+.topo-historico { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.topo-historico h2 { margin: 0; font-size: 1rem; flex: 1; }
+.topo-historico span { font-size: .85rem; color: #6b7280; }
+
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+td.aprovada { color: #067647; font-weight: 600; }
+td.reprovada { color: #b42318; font-weight: 600; }
+
+/* em tela pequena as colunas viram uma embaixo da outra */
+@media (max-width: 800px) {
+  main { grid-template-columns: 1fr; }
+}

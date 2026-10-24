@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inspeção de abraçadeiras</title>
+  <!-- url_for monta o caminho certo da pasta static, quem resolve é o Flask -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <header>
+    <h1>Inspeção de abraçadeiras</h1>
+    <p>Medição do diâmetro interno pela webcam</p>
+  </header>
+
+  <main>
+    <!-- Coluna da esquerda: vídeo da webcam -->
+    <section class="camera">
+      <div class="moldura">
+        <video id="video" autoplay playsinline muted></video>
+        <!-- este canvas fica por cima do vídeo e serve só pra desenhar o círculo detectado -->
+        <canvas id="camada"></canvas>
+      </div>
+      <p id="aviso" class="aviso"></p>
+    </section>
+
+    <!-- Coluna da direita: os três passos do uso -->
+    <section class="painel">
+      <div class="bloco">
+        <h2>1. Calibração</h2>
+        <p class="dica">Coloque só a moeda no fundo liso, na mesma distância em que as peças vão ficar.</p>
+        <label>Diâmetro da moeda (mm)
+          <input type="number" id="diametroMoeda" value="27" step="0.1" min="1">
+        </label>
+        <button id="btnCalibrar">Calibrar com a moeda</button>
+        <p class="estado" id="escala">Escala: não calibrada</p>
+      </div>
+
+      <div class="bloco">
+        <h2>2. Especificação</h2>
+        <div class="linha">
+          <label>Nominal (mm)
+            <input type="number" id="nominal" value="25" step="0.5">
+          </label>
+          <label>Tolerância ± (mm)
+            <input type="number" id="tolerancia" value="1" step="0.1" min="0">
+          </label>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="fundoClaro" checked> Fundo claro (peça escura)
+        </label>
+        <label>Limiar <span id="valorLimiar">automático</span>
+          <input type="range" id="limiar" min="0" max="255" value="0">
+        </label>
+      </div>
+
+      <div class="bloco">
+        <h2>3. Medição</h2>
+        <div class="linha">
+          <button id="btnMedir">Medir agora</button>
+          <label class="check">
+            <input type="checkbox" id="aoVivo"> Medir ao vivo
+          </label>
+        </div>
+        <!-- a classe "aprovada" ou "reprovada" é colocada aqui pelo JavaScript -->
+        <div id="resultado" class="resultado">
+          <span id="valor">--</span>
+          <span id="veredito"></span>
+        </div>
+        <button id="btnRegistrar" class="secundario" disabled>Registrar no histórico</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Tabela com as medidas registradas (as linhas são criadas pelo script.js) -->
+  <section class="historico">
+    <div class="topo-historico">
+      <h2>Histórico</h2>
+      <span id="resumo"></span>
+      <button id="btnCsv" class="secundario">Baixar CSV</button>
+      <button id="btnLimpar" class="secundario">Limpar</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Hora</th><th>Medido (mm)</th><th>Nominal (mm)</th><th>Tolerância (mm)</th><th>Resultado</th></tr>
+      </thead>
+      <tbody id="linhas"></tbody>
+    </table>
+  </section>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
