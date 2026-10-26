@@ -1,8 +1,16 @@
 # Documentação do projeto: Inspeção de abraçadeiras por visão computacional
 
-> Integrantes do grupo: _preencher_
-> Disciplina / turma: _preencher_
-> Professor(a): _preencher_
+**Integrantes do grupo**
+
+- Felipe dos Santos Bueno
+- Vinicius Menegol Cardoso
+- Guilherme Pedroni Formigheri
+- Kael Eduardo Faldi
+- Eduardo da Cruz dos Santos
+
+**Professor:** Vinícius Colombo Sonda
+
+**Disciplina / turma:** _preencher_
 
 ## Sumário
 
@@ -276,7 +284,12 @@ A qualidade da medição depende mais do cenário do que do código:
 4. **Ler o resultado.** A tela mostra o **percentual da circunferência** em relação ao padrão e o
    veredito **APROVADA** (verde) ou **REPROVADA** (vermelho). O contorno desenhado sobre o vídeo
    mostra o formato real detectado. Também aparecem a circunferência em pixels e a forma em % do padrão.
-5. **Registrar.** *Registrar no histórico* adiciona a medida à tabela e *Baixar CSV* exporta os dados.
+5. **Registrar.** Informe em *A peça realmente é* se a peça é **boa**, **defeituosa** ou "não sei" (é uma
+   anotação de quem mede, o sistema não descobre isso) e clique em *Registrar no histórico*. A medida entra
+   na tabela com a coluna "Situação real" e uma conferência contra o veredito do sistema. O resumo acima da
+   tabela mostra quantas o sistema acertou e conta separadamente as **boas reprovadas** e as
+   **defeituosas aprovadas** (a mais grave num controle de qualidade). O registro é manual: medir não
+   registra sozinho. *Baixar CSV* exporta a tabela.
 
 Para usar outro modelo de abraçadeira, defina uma nova peça padrão: cada modelo tem o seu.
 
@@ -487,8 +500,9 @@ pelas classes `aprovada` e `reprovada`.
 | `trocarModo` | Troca entre manual e automático, invalidando o laço anterior |
 | `limparDesenho`, `desenharContorno` | Limpam o canvas e desenham o contorno da medida sobre o vídeo |
 | `veredito` / `mostrarResultado` | Comparam o percentual (100% ± tolerância) e a forma (não menor que 100% − tolerância da forma) e pintam a caixa de resultado |
-| `registrar`, `desenharHistorico` | Guardam a medida e redesenham a tabela |
-| `baixarCsv` | Gera o CSV (separador `;`, vírgula decimal, BOM para acentos) e dispara o download |
+| `registrar`, `desenharHistorico` | Guardam a medida (com a situação real informada) e redesenham a tabela e o placar |
+| `conferir` | Compara o veredito do sistema com a situação real: `acertou`, `boa reprovada` ou `defeituosa aprovada` |
+| `baixarCsv` | Gera o CSV (separador `;`, vírgula decimal, BOM para acentos; colunas de situação real e conferência) e dispara o download |
 | `guardar` / `recuperar` | Leitura e escrita em `localStorage` |
 
 **Fluxo do modo automático**
@@ -626,8 +640,11 @@ comparados dentro do mesmo enquadramento: entre as fotos 3 e 4 a câmera mudou e
 | | | | | |
 | | | | | |
 
-Sugestão de roteiro: montar o cenário (fundo preto ou contraluz), definir o padrão, medir cada peça 5 vezes no modo automático e registrar no histórico. A variação
-entre as 5 medidas da mesma peça indica a repetibilidade do sistema.
+Sugestão de roteiro: montar o cenário (fundo preto ou contraluz), definir o padrão, medir cada peça 5 vezes no
+modo automático e registrar no histórico **informando a situação real** (boa ou defeituosa). Ao final, baixar
+o CSV: ele já traz o veredito do sistema, a situação real e a conferência, e serve de base para esta tabela.
+A variação entre as 5 medidas da mesma peça indica a repetibilidade do sistema, e o placar do histórico mostra
+quantas boas foram reprovadas e quantas defeituosas foram aprovadas.
 ---
 ## 10. Limitações conhecidas
 
