@@ -1,8 +1,9 @@
 # Inspeção de abraçadeiras
 
-Aplicação web que mede o diâmetro interno de abraçadeiras pela webcam e indica se a
-peça está aprovada ou reprovada conforme uma tolerância. Back-end em Python (Flask +
-OpenCV) e interface em HTML, CSS e JavaScript.
+Aplicação web que mede a circunferência interna de abraçadeiras pela webcam e compara com
+uma peça padrão: o resultado é o percentual da circunferência em relação ao padrão, e a peça
+é aprovada ou reprovada conforme uma tolerância. Back-end em Python (Flask + OpenCV) e
+interface em HTML, CSS e JavaScript.
 
 A documentação completa (tecnologias e versões, instalação passo a passo,
 funcionamento do back-end e do front-end) está em [DOCUMENTACAO.md](DOCUMENTACAO.md).
@@ -22,9 +23,13 @@ No Linux/macOS, ative o ambiente com `source venv/bin/activate`.
 
 ## Uso resumido
 
-1. Coloque uma moeda sobre uma folha lisa e clique em **Calibrar**.
-2. Informe o diâmetro nominal e a tolerância da peça.
-3. Coloque a abraçadeira no lugar da moeda e clique em **Medir agora**.
+1. Coloque uma peça boa sob a câmera e clique em **Definir como peça padrão**.
+2. Informe a tolerância (± % da circunferência).
+3. Coloque a peça a testar e meça: **Medir agora**, ou o modo **Automático**, que mede
+   sozinho quando a peça fica parada por alguns segundos.
+
+Use fundo liso escuro e fosco (ou contraluz), luz difusa e câmera parada, de cima, centralizada sobre a peça.
+Com fundo escuro, desmarque a opção "Fundo claro".
 
 ## Testes
 

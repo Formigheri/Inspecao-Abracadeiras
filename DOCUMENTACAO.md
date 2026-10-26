@@ -21,31 +21,53 @@
 13. [Referências e licenças](#13-referências-e-licenças)
 
 ---
-
 ## 1. Apresentação do projeto
 
 ### 1.1 Problema
 
 Na produção de abraçadeiras metálicas (de rosca sem-fim, tipo T e mini com parafuso),
-o diâmetro interno precisa estar dentro de uma tolerância. A conferência manual com
-paquímetro é lenta e depende de quem mede.
+a circunferência interna precisa estar dentro de uma tolerância. Uma peça amassada ou
+mal conformada tem a circunferência diferente da peça boa. A conferência manual é lenta
+e depende de quem mede.
 
 ### 1.2 Proposta
 
-Um sistema web que usa a webcam do computador para medir o diâmetro interno da
-peça e indicar automaticamente se ela está **aprovada** ou **reprovada** conforme um
-valor nominal e uma tolerância informados pelo usuário.
+Um sistema web que usa a webcam do computador para medir a **circunferência interna**
+da peça e compará-la com a de uma **peça padrão**, uma abraçadeira boa escolhida pelo
+operador. O resultado é um **percentual da circunferência** em relação ao padrão, e a peça
+é **aprovada** ou **reprovada** conforme uma tolerância em porcentagem. Como o perímetro de uma
+cinta amassada não muda (a fita tem comprimento fixo), a peça também é comparada com o padrão
+pela **forma**: a razão entre os eixos da elipse ajustada ao contorno.
 
-### 1.3 Escopo desta versão (MVP)
+Exemplo: se o padrão tem circunferência de 395,6 px e a peça testada tem 368,3 px, ela tem
+93,1% da circunferência do padrão. Com tolerância de ±2%, é reprovada.
+
+### 1.3 Por que comparar com um padrão
+
+- A comparação é **relativa**: padrão e peça testada passam pela mesma câmera, então a
+  escala (pixels por milímetro) se cancela e **não é preciso calibrar a câmera**.
+- O limite de aprovação pode ser **definido com dados**: medindo uma peça boa e uma
+  reprovada de verdade, vê-se qual porcentagem separa as duas.
+- A circunferência é medida pelo **perímetro real do contorno**, não calculada a partir
+  de um diâmetro. Por isso uma peça deformada (oval, achatada) é detectada, o que não
+  aconteceria se o sistema assumisse que toda peça é um círculo perfeito.
+
+### 1.4 Escopo desta versão (MVP)
 
 | Faz | Não faz (ainda) |
 |---|---|
 | Mostra o vídeo da webcam no navegador | Identificar o tipo da abraçadeira |
-| Calibra a escala usando uma moeda | Corrigir a distorção da lente |
-| Mede o diâmetro interno (furo) em mm | Medir largura da cinta ou outros detalhes |
-| Compara com nominal e tolerância | Guardar histórico em banco de dados |
-| Mede ao vivo ou sob demanda | Trabalhar com várias peças ao mesmo tempo |
+| Guarda uma peça padrão e compara a circunferência | Corrigir a distorção da lente |
+| Mede o perímetro do furo e devolve o % do padrão | Isolar a peça em qualquer fundo (ver limitações) |
+| Aprova ou reprova por tolerância em % | Guardar histórico em banco de dados |
+| Desenha o contorno real detectado sobre o vídeo | Trabalhar com várias peças ao mesmo tempo |
+| Mede sob demanda ou automaticamente quando a peça para | Mostrar medidas em milímetros |
+| Suaviza o contorno para o perímetro não oscilar | Ignorar texto ou manchas no fundo |
 | Guarda histórico e exporta CSV | |
+
+> Uma versão anterior tinha também média de vários quadros, subtração de um fundo vazio, guia da
+> peça padrão, modo ao vivo e calibração em milímetros. Como nenhum desses recursos mostrou ganho
+> com peças reais, foram retirados para manter o MVP simples (seção 11).
 
 ---
 
@@ -82,7 +104,7 @@ pensando em Chromium).
 
 ### 2.3 Modelos pré-treinados
 
-**Esta versão não usa nenhum modelo pré-treinado.** A detecção é feita com técnicas
+**Esta versão não usa nenhum modelo pré-treinado.** Um modelo de remoção de fundo (U²-Net) foi avaliado e descartado (seção 9.3). A detecção é feita com técnicas
 clássicas de visão computacional do OpenCV (binarização por Otsu, detecção de
 contornos e análise de hierarquia). Se o grupo incluir um modelo no futuro
 (por exemplo, para classificar o tipo de abraçadeira), ele deve ser open source e
@@ -103,8 +125,10 @@ listado na seção de [referências](#13-referências-e-licenças).
 ```
 inspecao_abracadeiras/
 ├── app.py                 servidor Flask e rotas da API
-├── medicao.py             visão computacional (calibração e medição)
+├── medicao.py             visão computacional (medição)
 ├── teste_medicao.py       testes automáticos
+├── validar_fotos.py       mede as fotos reais de fotos_teste/ e mostra o veredito
+├── fotos_teste/           4 fotos reais usadas na validação (seção 9.4.1)
 ├── requirements.txt       dependências Python
 ├── README.md              resumo e instruções rápidas
 ├── DOCUMENTACAO.md        este documento
@@ -225,47 +249,79 @@ python3 app.py
 ```
 
 ---
-
 ## 5. Como usar o sistema
 
 ### 5.1 Preparar o ambiente físico
 
 A qualidade da medição depende mais do cenário do que do código:
 
-- Use uma **folha lisa** (branca ou preta fosca) como fundo. A mesa de madeira com veios atrapalha a detecção.
-- Use **luz difusa**, sem reflexo forte no metal.
-- Deixe a **câmera parada**, apontada de cima para baixo, sempre à mesma distância.
-- Se o fundo for claro e a peça escura, deixe marcada a opção "Fundo claro". Se for o contrário, desmarque.
+- Use um **fundo liso e escuro** (cartolina preta fosca, por exemplo). O metal brilhante fica
+  claro contra o fundo escuro, e o furo da peça aparece como um buraco escuro bem definido.
+  Fundo claro funciona, mas exige que a peça seja bem mais escura que o papel.
+- Uma alternativa muito robusta é o **contraluz**: apoiar a peça sobre uma superfície branca iluminada por baixo (uma folha sobre uma tela de celular ou tablet com fundo branco, ou uma caixa de luz). A cinta metálica vira uma silhueta escura e o furo fica claro, com contraste forte e bordas nítidas. É a técnica usada em inspeção industrial de contornos. Nesse caso, deixe marcada a opção "Fundo claro".
+- Outra opção é a **luz coaxial**: uma luz bem perto da câmera (um ring light, ou a lanterna do celular colada na webcam) faz a sombra cair atrás da peça, onde a câmera não enxerga.
+- Use **luz difusa**, sem reflexo forte no metal. Uma caixa de papelão forrada com papel branco ou vegetal, com um furo para a câmera, ajuda a espalhar a luz.
+- Deixe a **câmera parada, apontada de cima para baixo e centralizada sobre a peça**. Câmera
+  inclinada mostra a parede interna da cinta e distorce o contorno.
+- Posicione cada peça sempre **no mesmo lugar** e na **mesma regulagem** (as de rosca sem-fim
+  são ajustáveis, então a circunferência muda conforme o aperto do parafuso).
 
 ### 5.2 Passo a passo na tela
 
-1. **Calibrar.** Coloque só uma moeda sobre a folha, informe o diâmetro real dela
-   (uma moeda de R$ 1 tem cerca de 27 mm) e clique em *Calibrar com a moeda*.
-   Aparece "Escala: X px/mm" e um círculo verde sobre a moeda.
-2. **Definir a especificação.** Digite o diâmetro **nominal** e a **tolerância** (±) da peça.
-3. **Medir.** Retire a moeda, coloque a abraçadeira no mesmo lugar e clique em
-   *Medir agora*, ou ligue *Medir ao vivo* para medir continuamente.
-4. **Ler o resultado.** O diâmetro aparece em mm com o veredito **APROVADA** (verde)
-   ou **REPROVADA** (vermelho). O círculo desenhado sobre o vídeo mostra o furo detectado.
-5. **Registrar.** *Registrar no histórico* adiciona a medida à tabela; *Baixar CSV* exporta
-   os dados para o Excel.
+1. **Definir a peça padrão.** Coloque uma peça boa sob a câmera e clique em
+   *Definir como peça padrão*. O contorno detectado aparece em azul e a tela mostra a
+   circunferência do padrão em pixels. Esse valor fica guardado no navegador.
+2. **Definir o critério.** Informe a **tolerância ±%** da circunferência (padrão: 2%) e a **tolerância da forma** (padrão: 5%), que é o quanto a peça pode ficar mais achatada que o padrão.
+3. **Medir.** Troque pela peça a testar e use um dos modos (seção 5.3).
+4. **Ler o resultado.** A tela mostra o **percentual da circunferência** em relação ao padrão e o
+   veredito **APROVADA** (verde) ou **REPROVADA** (vermelho). O contorno desenhado sobre o vídeo
+   mostra o formato real detectado. Também aparecem a circunferência em pixels e a forma em % do padrão.
+5. **Registrar.** *Registrar no histórico* adiciona a medida à tabela e *Baixar CSV* exporta os dados.
 
-### 5.3 Ajuste do limiar
+Para usar outro modelo de abraçadeira, defina uma nova peça padrão: cada modelo tem o seu.
 
-O controle **Limiar** começa em "automático" (método de Otsu), que costuma funcionar.
-Se o contorno sair errado (por exemplo, reflexo atrapalhando), mova o controle até o
-círculo desenhado acompanhar o furo.
+### 5.3 Modos de medição
 
-### 5.4 Por que calibrar
+| Modo | Como funciona | Quando usar |
+|---|---|---|
+| **Manual** | O botão *Medir agora* captura um quadro e mede | Conferências pontuais |
+| **Automático (peça parada)** | O sistema observa o vídeo; quando a cena fica parada pelo tempo definido em *Esperar (s)*, mede uma vez. Só mede de novo depois que algo se mexer, ou seja, quando a peça for trocada | Inspeção em sequência, sem apertar botão |
 
-A câmera enxerga a peça em pixels, mas o resultado precisa ser em milímetros. A
-calibração descobre quantos pixels cabem em 1 mm usando a moeda, que tem tamanho
-conhecido. Exemplo: moeda de 27 mm aparece com 135 px, então a escala é 135 / 27 = 5 px/mm;
-um furo que aparece com 125 px mede 125 / 5 = 25 mm.
+No modo automático, a tela mostra o estado ("Movimento detectado...", "Peça parada há 1,2 s...",
+"Medida feita. Troque a peça para medir de novo."). A detecção compara o vídeo com o quadro
+anterior e considera a cena em movimento quando mais de 0,5% dos pixels mudam bastante. Isso ignora o
+ruído da webcam e pequenas variações de luz, mas os valores podem precisar de ajuste conforme a
+câmera (constantes no topo do `script.js`).
 
-Essa escala muda se a câmera for movida, aproximada ou se o zoom mudar. Por isso é
-preciso calibrar de novo sempre que mexer na câmera. O sistema guarda a última escala
-no navegador, então ela continua válida após recarregar a página.
+### 5.4 Como o sistema decide e como escolher as tolerâncias
+
+Uma peça é **aprovada** quando as duas condições valem:
+
+1. **Perímetro:** `abs(percentual - 100) <= tolerância`. Padrão de 2%.
+2. **Forma:** `forma >= 100 - tolerância da forma`. Padrão de 5%.
+
+Onde isso está no código:
+
+| O quê | Onde |
+|---|---|
+| Regra de aprovação (back-end) | `aprovada()` em `medicao.py` |
+| Regra de aprovação usada na tela | `veredito()` em `static/script.js` (mesma regra, repetida no front para o veredito aparecer na hora, sem nova medição) |
+| Valores padrão das tolerâncias (2 e 5) | campos `tolerancia` e `toleranciaForma` em `templates/index.html` |
+| Cálculo do percentual e da forma | `percentual_circunferencia()`, `razao_dos_eixos()` e `forma_relativa()` em `medicao.py` |
+
+As tolerâncias **não são gravadas**: voltam ao padrão ao recarregar a página. Já a peça padrão (perímetro e
+razão dos eixos) e o histórico ficam no `localStorage` do navegador. Se mudar a regra, é preciso mudar
+`aprovada()` e `veredito()` juntas.
+
+Para escolher as tolerâncias, meça a peça padrão, uma peça boa e uma reprovada de verdade. Se a reprovada deu,
+por exemplo, 93% e uma boa variou entre 99% e 101%, uma tolerância de ±3% separa as duas. O mesmo vale para a
+forma. Registre os valores no histórico e use o CSV para justificar a escolha no relatório.
+
+### 5.5 Ajuste do limiar
+
+O controle **Limiar** começa em "automático" (método de Otsu), que costuma funcionar. Se o
+contorno desenhado não acompanhar o furo, mova o controle até acompanhar.
+
 
 ---
 
@@ -275,21 +331,21 @@ no navegador, então ela continua válida após recarregar a página.
  ┌──────────────────────────── NAVEGADOR ────────────────────────────┐
  │  index.html + estilo.css + script.js                               │
  │   - liga a webcam (getUserMedia)                                   │
- │   - captura um quadro do vídeo (canvas) e converte em JPEG         │
- │   - desenha o círculo detectado e mostra aprovada/reprovada        │
+ │   - detecta quando a peça para e captura um quadro (canvas)       │
+ │   - guarda o padrão, desenha o contorno e mostra o veredito        │
  └───────────────▲────────────────────────────────┬───────────────────┘
-                 │ JSON (diâmetro, círculo)       │ POST multipart
-                 │                                │ (imagem + parâmetros)
+                 │ JSON (perímetro, %, contorno)  │ POST multipart
+                 │                                │ (quadros + parâmetros)
  ┌───────────────┴────────────────────────────────▼───────────────────┐
  │                     SERVIDOR FLASK  (app.py)                       │
  │   GET  /              -> entrega a página                          │
- │   POST /api/calibrar  -> escala em px/mm                           │
- │   POST /api/medir     -> diâmetro do furo em mm                    │
+ │   POST /api/medir     -> perímetro do furo e % em relação ao padrão│
  └───────────────────────────────┬────────────────────────────────────┘
                                  │ chama funções
  ┌───────────────────────────────▼────────────────────────────────────┐
  │               VISÃO COMPUTACIONAL  (medicao.py, OpenCV)            │
- │   binarizar -> achar contornos -> filtrar -> converter px em mm    │
+ │   binarizar -> achar o furo -> suavizar o contorno -> medir o     │
+ │   perímetro                                                        │
  └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -297,119 +353,125 @@ Decisões de projeto:
 
 - **A medição fica no servidor** (Python + OpenCV) e não no navegador, porque o requisito
   do trabalho é um back-end funcional e porque a lógica de visão fica isolada e testável.
-- **O servidor não guarda estado.** A escala de calibração fica no navegador e é enviada
-  junto a cada pedido de medição. Isso simplifica o back-end (não precisa de sessão nem de banco).
-- **O servidor devolve só números** (diâmetro e centro/raio do círculo), não imagens. O
-  navegador desenha o círculo sobre o vídeo. Assim cada resposta é pequena, o que permite
-  a medição ao vivo.
-
+- **O servidor não guarda estado.** A circunferência da peça padrão fica no
+  navegador e é enviada junto a cada pedido. Isso simplifica o back-end (não precisa de sessão nem de banco).
+- **A detecção de "peça parada" fica no navegador**, comparando quadros reduzidos do vídeo. Assim o servidor
+  só recebe pedidos quando há de fato uma medição a fazer.
+- **O servidor devolve números e pontos** (perímetro, percentual, contorno), não imagens. O
+  navegador desenha o contorno sobre o vídeo. Cada resposta é pequena.
 ---
-
 ## 7. Funcionamento do back-end
 
 ### 7.1 `app.py`: servidor e rotas
 
 | Função | Papel |
 |---|---|
-| `ler_imagem()` | Lê o arquivo JPEG enviado no formulário e converte em imagem do OpenCV (`cv2.imdecode`) |
+| `ler_imagem()` | Converte o JPEG enviado no campo `imagem` em imagem do OpenCV (`cv2.imdecode`) |
 | `ler_opcoes()` | Lê `fundo_claro` e `limiar` do formulário |
+| `ler_numero_opcional()` | Lê um número positivo que pode estar ausente (devolve `None`), como o perímetro e a razão dos eixos do padrão |
+| `ErroDeRequisicao` | Exceção que o Flask transforma numa resposta `400` com a mensagem |
 | `index()` | Rota `GET /`. Devolve `templates/index.html` |
-| `calibrar()` | Rota `POST /api/calibrar` |
 | `medir()` | Rota `POST /api/medir` |
 
 #### Contrato da API
 
-**`POST /api/calibrar`** (formato `multipart/form-data`)
-
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `imagem` | arquivo JPEG | Quadro da webcam com a moeda |
-| `diametro_moeda` | número (mm) | Diâmetro real da moeda |
-| `fundo_claro` | `"true"` ou `"false"` | Fundo claro com objeto escuro, ou o inverso |
-| `limiar` | inteiro 0 a 255 | 0 = automático (Otsu) |
-
-Resposta `200`:
-```json
-{ "px_por_mm": 4.976, "circulo": { "x": 640.1, "y": 360.0, "raio": 67.2 } }
-```
-
 **`POST /api/medir`** (formato `multipart/form-data`)
 
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `imagem` | arquivo JPEG | Quadro da webcam com a abraçadeira |
-| `px_por_mm` | número | Escala obtida na calibração |
-| `fundo_claro` | `"true"` ou `"false"` | Igual à calibração |
-| `limiar` | inteiro 0 a 255 | Igual à calibração |
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `imagem` | arquivo JPEG | sim | Quadro da webcam |
+| `fundo_claro` | `"true"` ou `"false"` | não (padrão `true`) | Fundo claro com peça escura, ou o inverso |
+| `limiar` | inteiro 0 a 255 | não (padrão 0) | 0 = automático (Otsu) |
+| `perimetro_padrao_px` | número | não | Circunferência da peça padrão, em pixels |
+| `razao_padrao` | número | não | Razão dos eixos (forma) da peça padrão |
 
 Resposta `200`:
 ```json
-{ "diametro_mm": 25.31, "circulo": { "x": 640.0, "y": 360.1, "raio": 63.2 } }
+{
+  "perimetro_px": 368.3,
+  "area_px": 9120.0,
+  "circularidade": 0.992,
+  "razao_eixos": 0.949,
+  "contorno": [[640, 307], [641, 307], ...],
+  "percentual": 93.1,
+  "forma": 100.0
+}
 ```
+Os campos `percentual` e `forma` aparecem só quando `perimetro_padrao_px` e `razao_padrao` são enviados. Para **definir a peça
+padrão**, o front chama esta rota sem esses campos e guarda o `perimetro_px` e a `razao_eixos` devolvidos.
 
-**Códigos de erro** (em ambas as rotas, corpo `{ "erro": "mensagem" }`):
+**Códigos de erro** (corpo `{ "erro": "mensagem" }`):
 
 | Código | Quando acontece |
 |---|---|
-| `400` | Imagem ausente, parâmetros inválidos ou valores não positivos |
-| `422` | Requisição correta, mas não foi possível achar a moeda (calibrar) ou o furo (medir) |
+| `400` | Imagem ausente ou inválida, parâmetros inválidos |
+| `422` | Requisição correta, mas não foi possível achar o furo |
 
 ### 7.2 `medicao.py`: o processamento da imagem
 
 Tudo parte de uma imagem BGR (formato do OpenCV) e segue este caminho:
 
 ```
-imagem colorida
+quadro da webcam
    │  1. escala de cinza
    │  2. desfoque gaussiano 5x5 (tira ruído)
-   │  3. binarização (Otsu ou limiar manual)
+   │  3. binarização: Otsu ou limiar manual
    │  4. fechamento morfológico (tapa buracos pequenos)
    ▼
 máscara preto e branco
-   │  5. findContours
-   │  6. filtros: área mínima e circularidade
-   │  7. diâmetro equivalente (px)
+   │  5. findContours com hierarquia
+   │  6. furo = contorno dentro de outro, com área mínima
+   │  7. suavização do contorno e perímetro
    ▼
-conversão para mm: px / (px por mm)
+circunferência em pixels  ->  % em relação ao padrão
 ```
 
 | Função | O que faz |
 |---|---|
-| `binarizar` | Executa as etapas 1 a 4. Se `fundo_claro` for verdadeiro, usa threshold invertido, pois a peça é mais escura que o fundo |
-| `circularidade` | Calcula `4 · π · área / perímetro²`. Vale 1 para um círculo perfeito e cai para formas alongadas |
-| `diametro_equivalente` | Diâmetro do círculo de mesma área do contorno: `d = √(4 · área / π)` |
-| `circulo_do_contorno` | Devolve centro (centroide) e raio para o front desenhar |
-| `calibrar` | Acha o maior contorno externo redondo (circularidade ≥ 0,8 e área ≥ 500 px) e calcula `px_por_mm = diâmetro_px / diâmetro_real_mm` |
-| `medir_furo` | Acha contornos que estão **dentro** de outros (furos), filtra por área mínima e circularidade, escolhe o maior e converte para mm |
-| `aprovada` | `abs(medido - nominal) <= tolerância` |
+| `binarizar` | Executa as etapas 1 a 4. Usa threshold, invertido se `fundo_claro` (peça mais escura que o fundo) |
+| `suavizar` | Média gaussiana ao longo da curva do contorno (janela de cerca de 4 px, curva fechada) |
+| `perimetro` | Comprimento do contorno suavizado, em pixels (a circunferência) |
+| `circularidade` | `4 · π · área / perímetro²`. Vale 1 para um círculo perfeito e cai para formas deformadas |
+| `razao_dos_eixos` | Menor eixo dividido pelo maior da elipse ajustada ao contorno (`cv2.fitEllipse`). Vale 1 para uma peça redonda e cai quando ela é achatada |
+| `forma_relativa` | `100 · razão_da_peça / razão_do_padrão` |
+| `pontos_do_contorno` | Lista enxuta de pontos do contorno suavizado (até cerca de 300) para o front desenhar o formato real |
+| `achar_furo` | Procura contornos que estão **dentro** de outros, filtra por área e escolhe o maior |
+| `medir_peca` | Mede o furo e devolve perímetro, área, circularidade, razão dos eixos e contorno |
+| `percentual_circunferencia` | `100 · perímetro_da_peça / perímetro_do_padrão` |
+| `aprovada` | Aprova se `abs(percentual - 100) <= tolerância` **e** `forma >= 100 - tolerância_da_forma` |
 
-**Por que o diâmetro "equivalente"?** Usar a área do contorno em vez de medir uma
-linha de lado a lado deixa a medida menos sensível a pequenas falhas na borda e a
-elipses causadas por leve inclinação da câmera.
+**Por que suavizar o contorno.** Um contorno em pixels é irregular, e o perímetro é muito sensível a
+essas irregularidades: cada reentrância pequena aumenta o comprimento. Em borda irregular, somar os
+segmentos do contorno cru superestimou o perímetro em até 28% nos testes (a aproximação por polígono de 2 px
+ainda errava por até 17%), enquanto o contorno suavizado errou cerca de 4% (seção 9.2). A suavização é a mesma para o padrão e para a
+peça testada, então o pequeno viés que sobra se cancela no percentual.
 
-**Como o furo é distinguido do resto?** O `findContours` em modo `RETR_CCOMP` devolve
-uma hierarquia. Um contorno com "pai" (`h[3] != -1`) está dentro de outro, e é isso
-que caracteriza o furo de uma peça em forma de anel.
+**Por que o perímetro e não o diâmetro?** O diâmetro (ou o equivalente pela área) assume que o furo
+é um círculo. Numa peça amassada isso esconde parte do defeito. O perímetro acompanha a forma real
+do contorno e capta a deformação.
 
+**Como o furo é distinguido do resto?** O `findContours` em modo `RETR_CCOMP` devolve uma
+hierarquia. Um contorno com "pai" (`h[3] != -1`) está dentro de outro, e é isso que caracteriza o
+furo de uma peça em forma de anel. A circularidade mínima para aceitar um furo é baixa (0,3) de
+propósito: uma peça amassada precisa ser detectada para poder ser reprovada.
 ---
-
 ## 8. Funcionamento do front-end
 
 ### 8.1 `templates/index.html`
 
-Página única com três regiões:
+Página única com estas regiões:
 
-1. **Vídeo** (`<video id="video">`) com um `<canvas id="camada">` por cima, usado para desenhar o círculo detectado.
-2. **Painel** com três blocos: calibração, especificação (nominal, tolerância, fundo, limiar) e medição.
+1. **Vídeo** (`<video id="video">`) com um `<canvas id="camada">` por cima, usado para desenhar o contorno detectado.
+2. **Painel** com: peça padrão, critério (tolerância em %, fundo, limiar), e medição (modo, resultado, detalhes e registro).
 3. **Histórico** em tabela, com botões de exportar e limpar.
 
 Os caminhos do CSS e do JS usam `url_for('static', ...)`, que o Flask resolve.
 
 ### 8.2 `static/estilo.css`
 
-CSS simples: layout em duas colunas (`display: grid`) que vira uma coluna em telas
-estreitas (`@media`), cartões brancos para cada bloco e as cores verde/vermelho do
-resultado, controladas pelas classes `aprovada` e `reprovada`.
+CSS simples: layout em duas colunas (`display: grid`) que vira uma coluna em telas estreitas
+(`@media`), cartões brancos para cada bloco e as cores verde/vermelho do resultado, controladas
+pelas classes `aprovada` e `reprovada`.
 
 ### 8.3 `static/script.js`
 
@@ -417,100 +479,182 @@ resultado, controladas pelas classes `aprovada` e `reprovada`.
 |---|---|
 | `iniciarCamera` | Pede permissão e liga a webcam (`getUserMedia`) |
 | `pegarQuadro` | Copia o quadro atual do vídeo para um canvas invisível e gera um JPEG |
-| `enviar` | Monta o `FormData` (imagem, fundo, limiar e extras) e faz o `fetch` POST |
-| `calibrar` | Chama `/api/calibrar`, guarda a escala e desenha o círculo verde |
-| `medir` | Chama `/api/medir`, atualiza o resultado e desenha o círculo (verde ou vermelho) |
-| `repetirMedicao` | Modo ao vivo: mede, espera 400 ms e repete. Usa `setTimeout` para nunca haver duas requisições simultâneas |
-| `veredito` / `mostrarResultado` | Comparam a medida com nominal e tolerância e pintam a caixa de resultado |
+| `enviar` | Captura um quadro, monta o `FormData` (quadro, opções e extras) e faz o `fetch` POST |
+| `definirPadrao` | Chama `/api/medir`, guarda o `perimetro_px` do padrão e desenha o contorno em azul |
+| `medir` | Chama `/api/medir` com o padrão, atualiza o resultado e desenha o contorno (verde ou vermelho) |
+| `movimentoDaCena` | Compara uma versão reduzida (160x90) do vídeo com a da checagem anterior e devolve a fração de pixels que mudaram bastante |
+| `passoAutomatico` | Modo automático: espera a cena ficar parada pelo tempo escolhido, mede uma vez e só mede de novo depois que algo se mexer |
+| `trocarModo` | Troca entre manual e automático, invalidando o laço anterior |
+| `limparDesenho`, `desenharContorno` | Limpam o canvas e desenham o contorno da medida sobre o vídeo |
+| `veredito` / `mostrarResultado` | Comparam o percentual (100% ± tolerância) e a forma (não menor que 100% − tolerância da forma) e pintam a caixa de resultado |
 | `registrar`, `desenharHistorico` | Guardam a medida e redesenham a tabela |
 | `baixarCsv` | Gera o CSV (separador `;`, vírgula decimal, BOM para acentos) e dispara o download |
 | `guardar` / `recuperar` | Leitura e escrita em `localStorage` |
 
-**Fluxo de uma medição**
+**Fluxo do modo automático**
 
 ```
-clique em "Medir agora"
-  -> pegarQuadro()              captura o vídeo em JPEG
-  -> enviar("/api/medir")       POST com imagem + px_por_mm
-  -> servidor devolve JSON      { diametro_mm, circulo }
-  -> mostrarResultado()         valor e APROVADA/REPROVADA
-  -> desenharCirculo()          círculo sobre o vídeo
+vídeo ao vivo
+  -> movimentoDaCena()          a cada 200 ms compara com o quadro anterior
+  -> cena parada >= "Esperar"   e o sistema está "armado"
+  -> enviar("/api/medir")         servidor mede o quadro
+  -> mostrarResultado()         "93,1 %" e APROVADA/REPROVADA
+  -> desarma                    só mede de novo depois de detectar movimento
 ```
 
-Ao alterar nominal ou tolerância, o veredito da última medida é recalculado na hora,
-sem nova medição.
-
+Ao alterar a tolerância, o veredito da última medida é recalculado na hora, sem nova medição.
 ---
-
 ## 9. Testes e validação
 
 ### 9.1 Testes automáticos
 
-O arquivo `teste_medicao.py` usa imagens desenhadas por código (moeda e anel com
-tamanho conhecido) e verifica:
+O arquivo `teste_medicao.py` usa imagens desenhadas por código (anéis redondos, menores, ovais e de
+borda irregular, com tamanho conhecido) e tem 17 testes:
 
-| Teste | Verifica |
+| Grupo | Testes |
 |---|---|
-| `test_calibracao` | Escala encontrada próxima de 5 px/mm |
-| `test_medida_do_furo` | Furo de 25 mm medido com diferença de até 0,6 mm |
-| `test_imagem_sem_furo` | Sem furo, não devolve medida |
-| `test_tolerancia` | Regra de aprovação |
-| `test_fluxo_completo` | Calibrar e depois medir pela API |
-| `test_sem_imagem` | Rota responde `400` sem imagem |
-| `test_moeda_nao_encontrada` | Rota responde `422` com fundo vazio |
+| Perímetro e percentual | Perímetro de um furo de 125 px a menos de 2% de π × 125; mesma peça dá 100%; furo de 115 px contra 125 px dá cerca de 92%; peça oval dá cerca de 93% e circularidade menor que a do padrão |
+| Regra | Regra de 100% ± tolerância; regra da forma; peça achatada com perímetro igual ao do padrão é reprovada pela forma; imagem sem furo não devolve medida |
+| Robustez | Medida estável com ruído forte na imagem; a suavização reduz o efeito da borda irregular |
+| API | Definir padrão e medir peça igual; peça deformada abaixo do padrão; sem imagem (`400`); parâmetro inválido (`400`); furo não encontrado (`422`) |
 
 Para rodar: `python teste_medicao.py`
 
-### 9.2 Teste de ponta a ponta
+### 9.2 Experimentos com imagens desenhadas
 
-Durante o desenvolvimento, o sistema completo foi executado num Chromium com webcam
-simulada (vídeo gerado por código com uma moeda de 27 mm e depois um anel com furo
-de 25 mm). Resultado:
+Resultados medidos durante o desenvolvimento (círculo de referência com perímetro teórico de 392,7 px):
 
-| Item | Esperado | Obtido |
+| Situação | Sem a melhoria | Com a melhoria |
 |---|---|---|
-| Escala | 5,000 px/mm | 4,976 px/mm |
-| Diâmetro do furo | 25,00 mm | 25,31 mm |
-| Veredito (25 ± 1 mm) | Aprovada | Aprovada |
-| Veredito (28 ± 1 mm) | Reprovada | Reprovada |
+| Borda irregular do furo (amplitude de 2,5 px) | 115% a 117% do esperado (polígono de 2 px); 127% a 128% (contorno cru) | cerca de 104% (contorno suavizado) |
+| Ruído forte na imagem (desvio de 18 níveis) | 100% | 100% (o desfoque e o Otsu já absorvem esse ruído) |
 
-O erro de cerca de 0,3 mm nesse cenário ideal vem da resolução em pixels e da
-suavização das bordas.
+Em imagens desenhadas, o desfoque e o Otsu já absorvem o ruído da webcam. Um protótipo com média de
+vários quadros e outro com subtração de fundo vazio (que corrigia um papel riscado, de 157% para 100%)
+chegaram a ser feitos e foram retirados, porque não houve como confirmá-los com peças reais.
 
-### 9.3 Validação com peças reais (a preencher pelo grupo)
+### 9.3 Teste de ponta a ponta
 
-Imagens desenhadas não têm reflexo, sombra nem lente real. Recomenda-se medir as
-abraçadeiras de verdade e comparar com um paquímetro:
+O sistema completo foi executado num Chromium com webcam simulada (vídeos gerados por código):
 
-| Peça | Paquímetro (mm) | Sistema (mm) | Diferença (mm) |
-|---|---|---|---|
-| | | | |
-| | | | |
-| | | | |
+| Situação | Esperado | Obtido |
+|---|---|---|
+| Padrão sobre fundo liso | cerca de 394,8 px | 394,8 px |
+| Mesma peça medida contra o padrão | 100% (aprovada) | 100,0% (aprovada) |
+| Modo automático com a peça parada | 1 medição em cerca de 5 s | 1 medição |
+| Modo automático com a peça indo e parando (13 s) | 2 ou mais medições | 3 medições |
+| Voltar para o modo manual | 0 novas medições | 0 |
+| Peça oval (semieixos 62 e 53 px) com tolerância de 2% | cerca de 93% (reprovada) | 93,1% (reprovada) |
 
+Esta tabela foi obtida na versão anterior, com mais recursos; na versão enxuta foram repetidos
+apenas o padrão, a medida da mesma peça e o modo automático com a peça parada.
+
+Observação: nesses testes a **circularidade** da peça oval foi 0,992 contra 1,001 do padrão. Ou seja,
+a circularidade quase não muda numa deformação leve, e é o **percentual da circunferência** que
+separa as peças. Por isso o critério usa o percentual e a razão dos eixos, e a circularidade é só informativa.
+
+### 9.4 Teste com foto real
+
+Foi testada uma foto real de duas abraçadeiras de rosca sem-fim (uma boa e uma deformada) sobre
+papel branco. A segmentação por limiar de brilho ou por bordas **não isolou o furo de
+forma confiável** nessa foto, porque:
+
+- metal prateado sobre papel branco tem pouco contraste;
+- há sombra e o papel tem texto visível por transparência;
+- a câmera estava inclinada, então aparecem a parede interna da cinta e o aro de cima.
+
+Também foi testada a **normalização do fundo**: estimar o fundo (filtro de mediana em imagem
+reduzida) e subtrair, para destacar só o que difere dele, sem depender de o fundo ser claro ou escuro.
+O método encontrou os dois furos nas posições certas, mas o contorno ficou irregular e dentro da borda
+real (pegou a sombra e o papel dentro do furo). Variando os parâmetros, a razão entre o perímetro das
+duas peças oscilou entre **57% e 100%**, o que torna o resultado inutilizável para decidir aprovação.
+O perímetro é muito sensível a contornos irregulares.
+
+Depois da implementação da suavização do contorno, a foto foi testada de novo,
+com cada abraçadeira recortada separadamente (o sistema mede uma peça por vez). Resultados:
+
+- Com o método padrão (limiar automático de Otsu), a peça da esquerda **não foi detectada**. Só com um limiar
+  manual específico (160) as duas foram detectadas, e a razão entre elas foi 93,4%. Com limiares vizinhos
+  (140 e 180) a medida falha ou se perde, então esse acerto é coincidência e não robustez.
+- Com o fundo estimado, mas agora com o contorno suavizado, a razão entre as duas peças continuou entre
+  **59% e 97%**. A suavização corrige irregularidades pequenas da borda, mas aqui o problema é a **posição**
+  da borda: o contorno cai dentro ou fora da cinta conforme o limiar.
+
+Mudar saturação ou matiz também não resolve: o metal prateado e o papel branco são ambos neutros
+(sem cor), então esses canais não os separam. Ajustar contraste ou brilho só reescala as intensidades
+e não cria diferença onde ela não existe.
+
+Por fim, foi avaliado um **modelo pré-treinado de remoção de fundo**, o U²-Net (via biblioteca `rembg`,
+nas versões `u2netp` e `u2net`, cerca de 1 s por quadro na CPU). O modelo recortou cada abraçadeira como um
+**disco cheio**, sem o furo, e incluiu a sombra como parte da peça. Mesmo medindo o contorno externo, a
+razão entre as duas peças variou de 94,6% a 99,2% conforme o limiar da máscara, o que é do tamanho da
+tolerância. Esses modelos são treinados para recortes visuais (achar "o objeto" com borda suave e sem
+buracos), e não para medir. Modelos generativos que "limpam" a imagem seriam piores, pois inventam pixels
+e podem deixar redonda uma peça amassada, escondendo o defeito. O modelo foi **descartado** para a medição.
+
+A conclusão é que o problema está nas **condições da imagem** e não no processamento. O sistema depende
+do cenário físico (seção 5.1). A validação com peças reais nessas condições é o próximo passo.
+
+### 9.4.1 Fotos com fundo preto
+
+O grupo fotografou as peças sobre uma base preta fosca (4 fotos: duas peças sozinhas e dois pares lado a lado).
+Com fundo escuro (opção "Fundo claro" desmarcada), o contorno do furo passou a acompanhar a cinta nas
+quatro fotos, o que não acontecia com o papel branco. Os pares foram medidos recortando cada peça (o sistema
+mede uma por vez), com a câmera em ângulo e a peça longe do centro.
+
+Primeiro resultado, com o fechamento morfológico fraco (3x3, 2 iterações) e suavização de 4 px: duas peças
+aparentemente iguais deram **117,5%** uma da outra, porque a rosca e o reflexo deixavam o contorno cheio de
+reentrâncias que somavam perímetro. Com fechamento de 7x7 (3 iterações) e suavização de 10 px (valores
+adotados no código), as mesmas duas peças deram **100,5%**.
+
+Achado importante: a cinta é uma fita de comprimento fixo, então amassar a peça **não muda o perímetro**
+se o aperto for o mesmo. Na foto 3, a peça da esquerda está visivelmente achatada, mas seu perímetro ficou em
+99,8% da peça da direita. O que muda é a forma: a razão entre os eixos da elipse ajustada foi 0,88 na peça
+achatada contra 0,95 na peça normal. Ou seja, o percentual de circunferência detecta diferença de **aperto
+ou tamanho** (peça mais frouxa ou mais apertada), mas não detecta sozinho a deformação. O sistema passou então a
+comparar também a **forma**. Na foto 3, com a peça da direita (a mais redonda, considerada aprovada pelo grupo)
+como padrão, a da esquerda deu 99,8% de perímetro e 92,4% de forma, e foi **reprovada** com tolerância de forma de 5%.
+Na foto 4, as duas peças deram 100,5% de perímetro e 100,0% de forma (aprovada).
+As quatro fotos estão em `fotos_teste/` e o resultado acima se repete com `python validar_fotos.py`. Padrão e peça só podem ser
+comparados dentro do mesmo enquadramento: entre as fotos 3 e 4 a câmera mudou e o perímetro difere em cerca de 3%.
+
+### 9.5 Validação com peças reais (a preencher pelo grupo)
+
+| Peça | Situação (boa ou deformada) | % medido | Veredito esperado | Veredito do sistema |
+|---|---|---|---|---|
+| Padrão | boa | 100% | aprovada | |
+| | | | | |
+| | | | | |
+
+Sugestão de roteiro: montar o cenário (fundo preto ou contraluz), definir o padrão, medir cada peça 5 vezes no modo automático e registrar no histórico. A variação
+entre as 5 medidas da mesma peça indica a repetibilidade do sistema.
 ---
-
 ## 10. Limitações conhecidas
 
-- **Só mede o diâmetro interno** e não reconhece o tipo de abraçadeira.
+- **Depende do cenário físico.** A detecção usa contraste. Metal prateado sobre fundo claro, sombras e reflexos fortes atrapalham (ver seção 9.4). Recomenda-se fundo escuro fosco ou contraluz, e luz difusa.
+- **Câmera inclinada ou fora do centro** mostra a parede interna da cinta e distorce o contorno. A câmera deve ficar de cima, centralizada.
+- **Fundo com texto ou manchas** é confundido com a peça. Por isso o fundo deve ser liso.
+- **Sem escala em milímetros.** O sistema só compara com o padrão e não mostra a medida real.
+- **Abraçadeiras ajustáveis** (rosca sem-fim) mudam de circunferência conforme o aperto. A comparação só vale com padrão e peça na mesma regulagem.
+- **Cada modelo precisa do seu padrão.** O percentual compara a peça com o padrão, não com um valor absoluto.
 - **Sem correção da distorção da lente.** As bordas da imagem podem sair levemente deformadas.
-- **Diferença de altura:** a moeda é fina e a abraçadeira é mais alta, então fica mais perto da câmera e parece maior. Isso soma ao erro. Mitigação: calibrar com um objeto da mesma altura da peça.
-- **Precisão esperada:** cerca de ±0,5 mm com uma webcam comum bem posicionada.
-- **Sensível à iluminação e ao fundo.** Reflexos fortes no metal podem gerar contornos falsos.
+- **Posição na imagem.** Padrão e peça testada devem ficar no mesmo lugar e à mesma distância da câmera, senão a escala muda e o percentual sai errado.
+- **Modo automático:** a detecção de "peça parada" foi testada só com vídeos simulados. Em webcams reais os limites de movimento (constantes no `script.js`) podem precisar de ajuste.
+- **Validação:** os resultados desta documentação vêm de imagens desenhadas por código e de uma foto real que não pôde ser medida. A medição com peças reais em cenário controlado ainda precisa ser feita (seção 9.5).
+- **A forma é medida no plano da imagem.** Uma deformação que incline a peça em vez de achatá-la pode aparecer como achatamento, e a câmera inclinada também reduz a razão dos eixos. Os valores de 5% e 2% ainda não foram calibrados com um conjunto grande de peças.
+- **Só mede o furo** e não reconhece o tipo de abraçadeira.
 - **Uma peça por vez** no campo de visão.
 - **Servidor de desenvolvimento.** `app.run(debug=True)` é para uso local. Para produção seria preciso um servidor como Gunicorn ou Waitress, e `debug` desligado.
-- **Histórico só no navegador** (`localStorage`): se limpar os dados do navegador, ele se perde.
-
+- **Padrão e histórico só no navegador** (`localStorage`): se limpar os dados do navegador, eles se perdem.
 ---
-
 ## 11. Melhorias futuras
 
+- Validação com um conjunto de fotos e peças reais em cenário controlado (fundo preto ou contraluz).
 - Classificar o tipo da abraçadeira por forma ou com um modelo de detecção open source (por exemplo, YOLO), referenciando o modelo e a licença.
 - Calibração por padrão xadrez (`cv2.calibrateCamera`) para corrigir a distorção da lente.
-- Guardar o histórico em banco de dados (SQLite).
-- Medir também a largura da cinta e a espessura.
-- Perfis de especificação salvos por tipo de peça.
-
+- Guardar peças padrão (uma por modelo) e o histórico em banco de dados (SQLite).
+- Reprovar também por forma (por exemplo, comparando o contorno com o do padrão), além do perímetro.
+- Reintroduzir, se as fotos reais mostrarem necessidade: subtração de um quadro do fundo vazio (para fundo com texto), média de vários quadros (para webcam ruidosa) e calibração em milímetros com uma moeda.
 ---
 
 ## 12. Publicação no GitHub
@@ -557,4 +701,7 @@ devem ser feitos por todos, para o histórico mostrar a contribuição de cada u
 - N. Otsu, "A Threshold Selection Method from Gray-Level Histograms",
   IEEE Transactions on Systems, Man, and Cybernetics, 1979 (método usado na binarização automática).
 
-Nenhum modelo pré-treinado foi utilizado nesta versão.
+- X. Qin et al., "U2-Net: Going Deeper with Nested U-Structure for Salient Object Detection", Pattern Recognition, 2020 (modelo avaliado e descartado na seção 9.4; licença Apache-2.0).
+- rembg: https://github.com/danielgatis/rembg (biblioteca usada para rodar o U²-Net no teste; licença MIT).
+
+Nenhum modelo pré-treinado faz parte do sistema final.
