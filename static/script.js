@@ -1,28 +1,41 @@
-// Lógica do front-end: liga a webcam, captura quadros, envia ao servidor Flask
-// e mostra o resultado. Também cuida do histórico e da exportação em CSV.
+// Lógica do front-end: liga a webcam, captura um quadro, envia ao servidor Flask
+// e mostra o resultado. Também cuida do modo automático, do histórico e do CSV.
 
 const $ = (id) => document.getElementById(id);
+
+// detecção de movimento: um pixel "mudou" se a diferença passar de MUDANCA_DE_PIXEL (0 a 255),
+// e a cena está em movimento se mais que LIMITE_MOVIMENTO dos pixels mudaram
+const MUDANCA_DE_PIXEL = 25;
+const LIMITE_MOVIMENTO = 0.005;
+const PASSO_AUTOMATICO = 200;           // ms entre uma checagem e outra
 
 const video = $("video");
 const camada = $("camada");
 const ctx = camada.getContext("2d");
 // canvas fora da página, usado só para capturar os quadros do vídeo
 const quadro = document.createElement("canvas");
+// versão reduzida do vídeo, usada só para detectar movimento
+const amostra = document.createElement("canvas");
+amostra.width = 160;
+amostra.height = 90;
+const ctxAmostra = amostra.getContext("2d", { willReadFrequently: true });
 
-let pxPorMm = null;       // escala da calibração (pixels por milímetro)
-let ultimaMedida = null;  // último diâmetro medido, em mm
+let perimetroPadrao = null;  // circunferência da peça padrão, em pixels
+let razaoPadrao = null;      // razão dos eixos (forma) da peça padrão
+let ultima = null;           // última medida devolvida pelo servidor
 let historico = [];
-let aoVivo = false;
+
+let ciclo = 0;               // identifica o laço ativo; mudar de modo invalida os antigos
 
 
 // ---------- armazenamento local ----------
 
-// a escala e o histórico ficam no navegador para sobreviver a um recarregamento
+// o padrão e o histórico ficam no navegador para sobreviver a um recarregamento
 function guardar(chave, valor) {
   try {
     localStorage.setItem(chave, JSON.stringify(valor));
   } catch (e) {
-    // sem localStorage (aba anônima, por exemplo) o sistema segue sem salvar
+    // sem localStorage ou sem espaço, o sistema segue sem salvar
   }
 }
 
@@ -36,6 +49,10 @@ function recuperar(chave) {
 
 function avisar(texto) {
   $("aviso").textContent = texto || "";
+}
+
+function esperar(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 
@@ -54,7 +71,7 @@ async function iniciarCamera() {
   }
 }
 
-// o canvas do círculo precisa ter o mesmo tamanho do vídeo
+// o canvas do contorno precisa ter o mesmo tamanho do vídeo
 video.addEventListener("loadedmetadata", () => {
   camada.width = video.videoWidth;
   camada.height = video.videoHeight;
@@ -67,10 +84,17 @@ function pegarQuadro() {
   return new Promise((resolve) => quadro.toBlob(resolve, "image/jpeg", 0.92));
 }
 
+function cameraAtiva() {
+  if (video.videoWidth) return true;
+  avisar("A câmera ainda não está ativa.");
+  return false;
+}
+
 
 // ---------- comunicação com o servidor ----------
 
-// envia o quadro atual mais as opções da tela; "extras" traz os campos de cada rota
+// Envia o quadro atual do vídeo mais as opções da tela e devolve a resposta em JSON.
+// "extras" traz os campos adicionais da requisição.
 async function enviar(url, extras) {
   const dados = new FormData();
   dados.append("imagem", await pegarQuadro(), "quadro.jpg");
@@ -86,113 +110,202 @@ async function enviar(url, extras) {
 
 // ---------- desenho sobre o vídeo ----------
 
-function desenharCirculo(c, cor) {
+function limparDesenho() {
   ctx.clearRect(0, 0, camada.width, camada.height);
-  if (!c) return;
+}
+
+// desenha o formato real do furo, então uma peça amassada aparece amassada
+function desenharContorno(pontos, cor) {
+  limparDesenho();
   ctx.strokeStyle = cor;
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.arc(c.x, c.y, c.raio, 0, Math.PI * 2);
+  ctx.moveTo(pontos[0][0], pontos[0][1]);
+  for (const [x, y] of pontos.slice(1)) {
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
   ctx.stroke();
 }
 
 
-// ---------- calibração ----------
+// ---------- peça padrão ----------
 
-function mostrarEscala() {
-  const el = $("escala");
-  if (pxPorMm) {
-    el.textContent = "Escala: " + pxPorMm.toFixed(3) + " px/mm";
+function mostrarPadrao() {
+  const el = $("padrao");
+  if (perimetroPadrao && razaoPadrao) {
+    el.textContent = "Padrão: " + perimetroPadrao.toFixed(1) + " px de circunferência";
     el.classList.add("ok");
   } else {
-    el.textContent = "Escala: não calibrada";
+    el.textContent = "Padrão: não definido";
     el.classList.remove("ok");
   }
 }
 
-async function calibrar() {
+async function definirPadrao() {
   avisar("");
-  if (!video.videoWidth) {
-    avisar("A câmera ainda não está ativa.");
-    return;
-  }
-  const r = await enviar("/api/calibrar", { diametro_moeda: $("diametroMoeda").value });
-  // quando algo dá errado o servidor responde { erro: "..." }
+  if (!cameraAtiva()) return;
+
+  const r = await enviar("/api/medir", {});
   if (r.erro) {
     avisar(r.erro);
-    desenharCirculo(null);
+    limparDesenho();
     return;
   }
-  pxPorMm = r.px_por_mm;
-  guardar("pxPorMm", pxPorMm);
-  mostrarEscala();
-  desenharCirculo(r.circulo, "#2e9e5b");
+  perimetroPadrao = r.perimetro_px;
+  razaoPadrao = r.razao_eixos;
+  guardar("perimetroPadrao", perimetroPadrao);
+  guardar("razaoPadrao", razaoPadrao);
+  mostrarPadrao();
+  desenharContorno(r.contorno, "#2563eb");
+
+  // a medida anterior era comparada com o padrão antigo
+  ultima = null;
+  mostrarResultado();
 }
 
 
 // ---------- medição ----------
 
-function veredito(medido) {
-  const nominal = parseFloat($("nominal").value);
+// passa se o percentual ficar dentro de 100% ± tolerância e a forma não ficar
+// mais achatada que o padrão além da tolerância de forma
+function veredito(medida) {
   const tol = parseFloat($("tolerancia").value);
-  return Math.abs(medido - nominal) <= tol;
+  const tolForma = parseFloat($("toleranciaForma").value);
+  return Math.abs(medida.percentual - 100) <= tol && medida.forma >= 100 - tolForma;
 }
 
-// medido === null limpa a caixa de resultado
-function mostrarResultado(medido) {
+// sem medida (ultima === null) a caixa de resultado é limpa
+function mostrarResultado() {
   const caixa = $("resultado");
   caixa.classList.remove("aprovada", "reprovada");
 
-  if (medido === null) {
+  if (!ultima) {
     $("valor").textContent = "--";
     $("veredito").textContent = "";
+    $("detalhe").textContent = "";
     $("btnRegistrar").disabled = true;
     return;
   }
 
-  const ok = veredito(medido);
-  $("valor").textContent = medido.toFixed(2) + " mm";
+  const ok = veredito(ultima);
+  $("valor").textContent = ultima.percentual.toFixed(1) + " %";
   $("veredito").textContent = ok ? "APROVADA" : "REPROVADA";
   caixa.classList.add(ok ? "aprovada" : "reprovada");
+
+  $("detalhe").textContent = "Circunferência: " + ultima.perimetro_px.toFixed(1) +
+    " px | Forma: " + ultima.forma.toFixed(1) + " % do padrão";
   $("btnRegistrar").disabled = false;
 }
 
 async function medir() {
-  if (!pxPorMm) {
-    avisar("Calibre antes de medir.");
+  if (!perimetroPadrao || !razaoPadrao) {
+    avisar("Defina a peça padrão antes de medir.");
     return false;
   }
-  if (!video.videoWidth) {
-    avisar("A câmera ainda não está ativa.");
-    return false;
-  }
+  if (!cameraAtiva()) return false;
 
-  const r = await enviar("/api/medir", { px_por_mm: pxPorMm });
+  const r = await enviar("/api/medir", { perimetro_padrao_px: perimetroPadrao, razao_padrao: razaoPadrao });
   if (r.erro) {
     avisar(r.erro);
-    ultimaMedida = null;
-    desenharCirculo(null);
-    mostrarResultado(null);
+    ultima = null;
+    limparDesenho();
+    mostrarResultado();
     return false;
   }
 
   avisar("");
-  ultimaMedida = r.diametro_mm;
-  desenharCirculo(r.circulo, veredito(r.diametro_mm) ? "#2e9e5b" : "#d92d20");
-  mostrarResultado(r.diametro_mm);
+  ultima = r;
+  desenharContorno(r.contorno, veredito(r) ? "#2e9e5b" : "#d92d20");
+  mostrarResultado();
   return true;
 }
 
-// Modo ao vivo: mede, espera e repete. Usa setTimeout em vez de setInterval
-// para nunca haver duas requisições ao mesmo tempo.
-async function repetirMedicao() {
-  if (!aoVivo) return;
-  try {
-    await medir();
-  } catch (e) {
-    avisar("Perdi a conexão com o servidor.");
+// ---------- modo automático (peça parada) ----------
+
+let quadroAnterior = null;   // versão reduzida do quadro anterior, para detectar movimento
+let paradoDesde = null;      // quando a cena parou de se mexer
+let armado = true;           // pronto para medir assim que a cena ficar parada
+
+// Devolve a fração de pixels que mudaram desde a checagem anterior (ou null na primeira).
+// Contar pixels que mudaram bastante ignora o ruído da webcam e variações pequenas de luz.
+function movimentoDaCena() {
+  if (!video.videoWidth) return null;
+  ctxAmostra.drawImage(video, 0, 0, amostra.width, amostra.height);
+  const rgba = ctxAmostra.getImageData(0, 0, amostra.width, amostra.height).data;
+
+  const cinza = new Uint8Array(amostra.width * amostra.height);
+  for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
+    cinza[j] = (rgba[i] + rgba[i + 1] + rgba[i + 2]) / 3;
   }
-  setTimeout(repetirMedicao, 400);
+
+  let movimento = null;
+  if (quadroAnterior) {
+    let mudaram = 0;
+    for (let j = 0; j < cinza.length; j++) {
+      if (Math.abs(cinza[j] - quadroAnterior[j]) > MUDANCA_DE_PIXEL) mudaram++;
+    }
+    movimento = mudaram / cinza.length;
+  }
+  quadroAnterior = cinza;
+  return movimento;
+}
+
+function statusAutomatico(texto) {
+  $("statusAuto").textContent = texto;
+}
+
+// Espera a cena ficar parada pelo tempo escolhido, mede uma vez e só mede de novo
+// depois que algo se mexer (a peça ser trocada).
+async function passoAutomatico(id) {
+  if (id !== ciclo) return;
+
+  const movimento = movimentoDaCena();
+  const espera = parseFloat($("espera").value) || 2;
+
+  if (movimento === null) {
+    statusAutomatico("Aguardando a câmera...");
+  } else if (movimento > LIMITE_MOVIMENTO) {
+    paradoDesde = null;
+    armado = true;
+    statusAutomatico("Movimento detectado, aguardando a peça parar...");
+  } else {
+    if (paradoDesde === null) paradoDesde = Date.now();
+    const parado = (Date.now() - paradoDesde) / 1000;
+
+    if (!armado) {
+      // já mediu esta posição; só volta a medir depois que algo se mexer
+    } else if (parado >= espera) {
+      armado = false;
+      statusAutomatico("Medindo...");
+      try {
+        const ok = await medir();
+        statusAutomatico(ok
+          ? "Medida feita. Troque a peça para medir de novo."
+          : "Não consegui medir. Mova a peça para tentar de novo.");
+      } catch (e) {
+        statusAutomatico("Erro ao falar com o servidor.");
+      }
+    } else {
+      statusAutomatico("Peça parada há " + parado.toFixed(1) + " s (mede com " + espera + " s)");
+    }
+  }
+
+  setTimeout(() => passoAutomatico(id), PASSO_AUTOMATICO);
+}
+
+// ao mudar o modo, o laço antigo é invalidado e, se for o automático, um novo começa
+function trocarModo(modo) {
+  ciclo++;
+  quadroAnterior = null;
+  paradoDesde = null;
+  armado = true;
+  statusAutomatico("");
+
+  if (modo === "automatico") {
+    statusAutomatico("Aguardando a peça parar...");
+    passoAutomatico(ciclo);
+  }
 }
 
 
@@ -208,8 +321,9 @@ function desenharHistorico() {
     const classe = reg.aprovada ? "aprovada" : "reprovada";
     tr.innerHTML =
       "<td>" + reg.hora + "</td>" +
-      "<td>" + reg.medido.toFixed(2) + "</td>" +
-      "<td>" + reg.nominal + "</td>" +
+      "<td>" + reg.perimetro.toFixed(1) + "</td>" +
+      "<td>" + reg.percentual.toFixed(1) + " %</td>" +
+      "<td>" + (reg.forma ? reg.forma.toFixed(1) + " %" : "-") + "</td>" +
       "<td>" + reg.tolerancia + "</td>" +
       '<td class="' + classe + '">' + (reg.aprovada ? "Aprovada" : "Reprovada") + "</td>";
     corpo.appendChild(tr);
@@ -221,13 +335,14 @@ function desenharHistorico() {
 }
 
 function registrar() {
-  if (ultimaMedida === null) return;
+  if (!ultima) return;
   historico.push({
     hora: new Date().toLocaleTimeString("pt-BR"),
-    medido: ultimaMedida,
-    nominal: parseFloat($("nominal").value),
+    perimetro: ultima.perimetro_px,
+    percentual: ultima.percentual,
+    forma: ultima.forma,
     tolerancia: parseFloat($("tolerancia").value),
-    aprovada: veredito(ultimaMedida),
+    aprovada: veredito(ultima),
   });
   guardar("historico", historico);
   desenharHistorico();
@@ -236,11 +351,11 @@ function registrar() {
 function baixarCsv() {
   if (!historico.length) return;
   // ponto e vírgula e vírgula decimal para o Excel em português abrir corretamente
-  const linhas = ["hora;medido_mm;nominal_mm;tolerancia_mm;resultado"];
+  const num = (n, casas) => n.toFixed(casas).replace(".", ",");
+  const linhas = ["hora;circunferencia_px;percentual_do_padrao;forma_pct;tolerancia_pct;resultado"];
   for (const r of historico) {
-    const num = (n) => String(n).replace(".", ",");
-    linhas.push([r.hora, num(r.medido.toFixed(3)), num(r.nominal), num(r.tolerancia),
-      r.aprovada ? "APROVADA" : "REPROVADA"].join(";"));
+    linhas.push([r.hora, num(r.perimetro, 1), num(r.percentual, 2), (r.forma ? num(r.forma, 1) : ""),
+      num(r.tolerancia, 1), r.aprovada ? "APROVADA" : "REPROVADA"].join(";"));
   }
   // o ﻿ no início (BOM) faz o Excel reconhecer os acentos
   const arquivo = new Blob(["﻿" + linhas.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -265,28 +380,27 @@ function textoLimiar() {
   $("valorLimiar").textContent = v === "0" ? "automático" : v;
 }
 
-$("btnCalibrar").addEventListener("click", calibrar);
-$("btnMedir").addEventListener("click", () => medir().catch(() => avisar("Erro ao falar com o servidor.")));
+function falhaDeRede() {
+  avisar("Erro ao falar com o servidor.");
+}
+
+$("btnPadrao").addEventListener("click", () => definirPadrao().catch(falhaDeRede));
+$("btnMedir").addEventListener("click", () => medir().catch(falhaDeRede));
 $("btnRegistrar").addEventListener("click", registrar);
 $("btnCsv").addEventListener("click", baixarCsv);
 $("btnLimpar").addEventListener("click", limparHistorico);
 $("limiar").addEventListener("input", textoLimiar);
+$("modo").addEventListener("change", (e) => trocarModo(e.target.value));
 
-$("aoVivo").addEventListener("change", (e) => {
-  aoVivo = e.target.checked;
-  if (aoVivo) repetirMedicao();
-});
+// ao mudar a tolerância, reavalia a última medida sem medir de novo
+$("tolerancia").addEventListener("input", mostrarResultado);
+$("toleranciaForma").addEventListener("input", mostrarResultado);
 
-// ao mudar nominal ou tolerância, reavalia a última medida sem medir de novo
-["nominal", "tolerancia"].forEach((id) => {
-  $(id).addEventListener("input", () => {
-    if (ultimaMedida !== null) mostrarResultado(ultimaMedida);
-  });
-});
-
-pxPorMm = recuperar("pxPorMm");
+perimetroPadrao = recuperar("perimetroPadrao");
+razaoPadrao = recuperar("razaoPadrao");
 historico = recuperar("historico") || [];
-mostrarEscala();
+mostrarPadrao();
+mostrarResultado();
 desenharHistorico();
 textoLimiar();
 iniciarCamera();
