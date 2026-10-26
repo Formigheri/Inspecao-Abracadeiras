@@ -1,6 +1,5 @@
-# Servidor web (Flask). Entrega a página e expõe duas rotas de API:
-#   POST /api/calibrar -> acha a moeda e devolve a escala (pixels por mm)
-#   POST /api/medir    -> acha o furo da peça e devolve o diâmetro em mm
+# Servidor web (Flask). Entrega a página e expõe uma rota de API:
+#   POST /api/medir -> mede a circunferência do furo da peça (e o % em relação ao padrão)
 # A visão computacional fica em medicao.py.
 
 import cv2
@@ -12,21 +11,50 @@ import medicao
 app = Flask(__name__)
 
 
+class ErroDeRequisicao(Exception):
+    """Pedido inválido: vira uma resposta 400 com a mensagem."""
+
+
+@app.errorhandler(ErroDeRequisicao)
+def tratar_erro_de_requisicao(erro):
+    return jsonify(erro=str(erro)), 400
+
+
 def ler_imagem():
     """Converte o JPEG enviado pelo navegador numa imagem do OpenCV."""
     arquivo = request.files.get("imagem")
     if arquivo is None:
-        return None
+        raise ErroDeRequisicao("Nenhuma imagem recebida.")
     bytes_imagem = np.frombuffer(arquivo.read(), np.uint8)
-    return cv2.imdecode(bytes_imagem, cv2.IMREAD_COLOR)
+    imagem = cv2.imdecode(bytes_imagem, cv2.IMREAD_COLOR)
+    if imagem is None:
+        raise ErroDeRequisicao("Imagem inválida.")
+    return imagem
 
 
 def ler_opcoes():
     """Lê as opções de segmentação (fundo e limiar) enviadas pela tela."""
-    # o JavaScript envia o checkbox como o texto "true" ou "false"
-    fundo_claro = request.form.get("fundo_claro", "true") == "true"
-    limiar = int(request.form.get("limiar", 0))
+    try:
+        # o JavaScript envia o checkbox como o texto "true" ou "false"
+        fundo_claro = request.form.get("fundo_claro", "true") == "true"
+        limiar = int(request.form.get("limiar", 0))
+    except ValueError:
+        raise ErroDeRequisicao("Parâmetros inválidos.")
     return fundo_claro, limiar
+
+
+def ler_perimetro_padrao():
+    """Perímetro da peça padrão, se veio. Devolve None se estiver ausente."""
+    valor = request.form.get("perimetro_padrao_px", "")
+    if valor == "":
+        return None
+    try:
+        perimetro = float(valor)
+    except ValueError:
+        raise ErroDeRequisicao("Parâmetros inválidos.")
+    if perimetro <= 0:
+        raise ErroDeRequisicao("Parâmetros inválidos.")
+    return perimetro
 
 
 @app.route("/")
@@ -34,51 +62,23 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/calibrar", methods=["POST"])
-def calibrar():
-    imagem = ler_imagem()
-    if imagem is None:
-        return jsonify(erro="Nenhuma imagem recebida."), 400
-
-    try:
-        diametro_moeda = float(request.form["diametro_moeda"])
-        fundo_claro, limiar = ler_opcoes()
-    except (KeyError, ValueError):
-        return jsonify(erro="Parâmetros inválidos."), 400
-
-    if diametro_moeda <= 0:
-        return jsonify(erro="O diâmetro da moeda precisa ser maior que zero."), 400
-
-    resultado = medicao.calibrar(imagem, diametro_moeda, fundo_claro, limiar)
-    if resultado is None:
-        # 422: a requisição está correta, mas a imagem não serve para calibrar
-        return jsonify(erro="Não encontrei a moeda. Confira o fundo, a luz e o limiar."), 422
-
-    px_por_mm, circulo = resultado
-    return jsonify(px_por_mm=px_por_mm, circulo=circulo)
-
-
 @app.route("/api/medir", methods=["POST"])
 def medir():
     imagem = ler_imagem()
-    if imagem is None:
-        return jsonify(erro="Nenhuma imagem recebida."), 400
+    fundo_claro, limiar = ler_opcoes()
+    perimetro_padrao = ler_perimetro_padrao()
 
-    try:
-        px_por_mm = float(request.form["px_por_mm"])
-        fundo_claro, limiar = ler_opcoes()
-    except (KeyError, ValueError):
-        return jsonify(erro="Parâmetros inválidos."), 400
-
-    if px_por_mm <= 0:
-        return jsonify(erro="Escala inválida, calibre de novo."), 400
-
-    resultado = medicao.medir_furo(imagem, px_por_mm, fundo_claro, limiar)
-    if resultado is None:
+    medida = medicao.medir_peca(imagem, fundo_claro, limiar)
+    if medida is None:
+        # 422: a requisição está correta, mas a imagem não serve para medir
         return jsonify(erro="Não encontrei o furo da abraçadeira."), 422
 
-    diametro_mm, circulo = resultado
-    return jsonify(diametro_mm=diametro_mm, circulo=circulo)
+    # o percentual só existe quando o front envia o perímetro do padrão
+    if perimetro_padrao is not None:
+        medida["percentual"] = medicao.percentual_circunferencia(
+            medida["perimetro_px"], perimetro_padrao)
+
+    return jsonify(medida)
 
 
 if __name__ == "__main__":
