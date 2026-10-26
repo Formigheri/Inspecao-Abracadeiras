@@ -10,7 +10,7 @@
 
 **Professor:** Vinícius Colombo Sonda
 
-**Disciplina / turma:** _preencher_
+**Disciplina:** Processamento de Imagens
 
 ## Sumário
 
