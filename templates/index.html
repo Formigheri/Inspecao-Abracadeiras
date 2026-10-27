@@ -67,7 +67,16 @@
           <span id="veredito"></span>
         </div>
         <p class="detalhe" id="detalhe"></p>
-        <button id="btnRegistrar" class="secundario" disabled>Registrar no histórico</button>
+        <div class="linha">
+          <label>A peça realmente é
+            <select id="situacaoReal">
+              <option value="">Não sei</option>
+              <option value="boa">Boa</option>
+              <option value="defeituosa">Defeituosa</option>
+            </select>
+          </label>
+          <button id="btnRegistrar" class="secundario" disabled>Registrar no histórico</button>
+        </div>
       </div>
     </section>
   </main>
@@ -84,6 +93,7 @@
         <tr>
           <th>Hora</th><th>Circunferência (px)</th><th>% do padrão</th>
           <th>Forma (%)</th><th>Tolerância (±%)</th><th>Resultado</th>
+          <th>Situação real</th><th>Sistema</th>
         </tr>
       </thead>
       <tbody id="linhas"></tbody>

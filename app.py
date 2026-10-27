@@ -43,18 +43,18 @@ def ler_opcoes():
     return fundo_claro, limiar
 
 
-def ler_perimetro_padrao():
-    """Perímetro da peça padrão, se veio. Devolve None se estiver ausente."""
-    valor = request.form.get("perimetro_padrao_px", "")
+def ler_numero_opcional(nome):
+    """Campo numérico positivo que pode não vir. Devolve None se estiver ausente."""
+    valor = request.form.get(nome, "")
     if valor == "":
         return None
     try:
-        perimetro = float(valor)
+        numero = float(valor)
     except ValueError:
         raise ErroDeRequisicao("Parâmetros inválidos.")
-    if perimetro <= 0:
+    if numero <= 0:
         raise ErroDeRequisicao("Parâmetros inválidos.")
-    return perimetro
+    return numero
 
 
 @app.route("/")
@@ -66,17 +66,20 @@ def index():
 def medir():
     imagem = ler_imagem()
     fundo_claro, limiar = ler_opcoes()
-    perimetro_padrao = ler_perimetro_padrao()
+    perimetro_padrao = ler_numero_opcional("perimetro_padrao_px")
+    razao_padrao = ler_numero_opcional("razao_padrao")
 
     medida = medicao.medir_peca(imagem, fundo_claro, limiar)
     if medida is None:
         # 422: a requisição está correta, mas a imagem não serve para medir
         return jsonify(erro="Não encontrei o furo da abraçadeira."), 422
 
-    # o percentual só existe quando o front envia o perímetro do padrão
+    # percentual e forma só existem quando o front envia os valores do padrão
     if perimetro_padrao is not None:
         medida["percentual"] = medicao.percentual_circunferencia(
             medida["perimetro_px"], perimetro_padrao)
+    if razao_padrao is not None:
+        medida["forma"] = medicao.forma_relativa(medida["razao_eixos"], razao_padrao)
 
     return jsonify(medida)
 

@@ -108,6 +108,26 @@ class TesteMedicao(unittest.TestCase):
         self.assertTrue(medicao.aprovada(98.0, 2))
         self.assertFalse(medicao.aprovada(93.0, 2))
 
+    def test_regra_de_aprovacao_com_forma(self):
+        self.assertTrue(medicao.aprovada(100, 2, forma=97, tolerancia_forma=5))
+        self.assertFalse(medicao.aprovada(100, 2, forma=92, tolerancia_forma=5))
+        self.assertFalse(medicao.aprovada(90, 2, forma=100, tolerancia_forma=5))
+
+    def test_razao_dos_eixos_pega_peca_achatada(self):
+        redonda = medicao.medir_peca(anel(125))["razao_eixos"]
+        achatada = medicao.medir_peca(anel_oval(62, 50))["razao_eixos"]
+        self.assertAlmostEqual(redonda, 1.0, delta=0.02)
+        self.assertLess(achatada, 0.85)
+
+    def test_achatamento_com_mesmo_perimetro_e_reprovado_pela_forma(self):
+        # elipse com perímetro quase igual ao do círculo de diâmetro 125 (eixos 70 e 54)
+        padrao = medicao.medir_peca(anel(125))
+        achatada = medicao.medir_peca(anel_oval(70, 54))
+        pct = medicao.percentual_circunferencia(achatada["perimetro_px"], padrao["perimetro_px"])
+        forma = medicao.forma_relativa(achatada["razao_eixos"], padrao["razao_eixos"])
+        self.assertAlmostEqual(pct, 100, delta=2.5)
+        self.assertFalse(medicao.aprovada(pct, 2.5, forma, 5))
+
 
     def test_medida_resiste_a_ruido_da_webcam(self):
         # com ruído forte na imagem o perímetro não pode mudar
@@ -148,6 +168,12 @@ class TesteApi(unittest.TestCase):
 
         r = self.enviar("/api/medir", anel(125), perimetro_padrao_px=str(padrao["perimetro_px"]))
         self.assertAlmostEqual(r.get_json()["percentual"], 100, delta=0.5)
+
+    def test_resposta_traz_a_forma_quando_ha_padrao(self):
+        padrao = self.enviar("/api/medir", anel(125)).get_json()
+        r = self.enviar("/api/medir", anel(125), perimetro_padrao_px=str(padrao["perimetro_px"]),
+                        razao_padrao=str(padrao["razao_eixos"]))
+        self.assertAlmostEqual(r.get_json()["forma"], 100, delta=1)
 
     def test_peca_deformada_fica_abaixo_do_padrao(self):
         padrao = self.enviar("/api/medir", anel(125)).get_json()["perimetro_px"]

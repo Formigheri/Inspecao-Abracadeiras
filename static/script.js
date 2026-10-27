@@ -311,6 +311,14 @@ function trocarModo(modo) {
 
 // ---------- histórico ----------
 
+// Compara o veredito do sistema com a situação real informada por quem mediu.
+// Devolve "acertou", "boa reprovada", "defeituosa aprovada" ou "" (situação não informada).
+function conferir(reg) {
+  if (!reg.real) return "";
+  if (reg.real === "boa") return reg.aprovada ? "acertou" : "boa reprovada";
+  return reg.aprovada ? "defeituosa aprovada" : "acertou";
+}
+
 function desenharHistorico() {
   const corpo = $("linhas");
   corpo.innerHTML = "";
@@ -319,19 +327,34 @@ function desenharHistorico() {
   for (const reg of [...historico].reverse()) {
     const tr = document.createElement("tr");
     const classe = reg.aprovada ? "aprovada" : "reprovada";
+    const conferencia = conferir(reg);
     tr.innerHTML =
       "<td>" + reg.hora + "</td>" +
       "<td>" + reg.perimetro.toFixed(1) + "</td>" +
       "<td>" + reg.percentual.toFixed(1) + " %</td>" +
       "<td>" + (reg.forma ? reg.forma.toFixed(1) + " %" : "-") + "</td>" +
       "<td>" + reg.tolerancia + "</td>" +
-      '<td class="' + classe + '">' + (reg.aprovada ? "Aprovada" : "Reprovada") + "</td>";
+      '<td class="' + classe + '">' + (reg.aprovada ? "Aprovada" : "Reprovada") + "</td>" +
+      "<td>" + (reg.real || "-") + "</td>" +
+      '<td class="' + (conferencia === "acertou" || !conferencia ? "" : "reprovada") + '">' +
+      (conferencia || "-") + "</td>";
     corpo.appendChild(tr);
   }
 
   const total = historico.length;
-  const boas = historico.filter((r) => r.aprovada).length;
-  $("resumo").textContent = total ? boas + " de " + total + " aprovadas" : "";
+  const aprovadas = historico.filter((r) => r.aprovada).length;
+  let texto = total ? aprovadas + " de " + total + " aprovadas" : "";
+
+  // o placar só conta os registros em que a situação real foi informada
+  const conferidos = historico.filter((r) => r.real);
+  if (conferidos.length) {
+    const acertos = conferidos.filter((r) => conferir(r) === "acertou").length;
+    const boasReprovadas = conferidos.filter((r) => conferir(r) === "boa reprovada").length;
+    const defeituosasAprovadas = conferidos.filter((r) => conferir(r) === "defeituosa aprovada").length;
+    texto += " | Sistema acertou " + acertos + " de " + conferidos.length +
+      " (boas reprovadas: " + boasReprovadas + ", defeituosas aprovadas: " + defeituosasAprovadas + ")";
+  }
+  $("resumo").textContent = texto;
 }
 
 function registrar() {
@@ -342,20 +365,25 @@ function registrar() {
     percentual: ultima.percentual,
     forma: ultima.forma,
     tolerancia: parseFloat($("tolerancia").value),
+    toleranciaForma: parseFloat($("toleranciaForma").value),
     aprovada: veredito(ultima),
+    real: $("situacaoReal").value,
   });
   guardar("historico", historico);
   desenharHistorico();
+  // volta para "Não sei" para a próxima peça não herdar a resposta da anterior
+  $("situacaoReal").value = "";
 }
 
 function baixarCsv() {
   if (!historico.length) return;
   // ponto e vírgula e vírgula decimal para o Excel em português abrir corretamente
   const num = (n, casas) => n.toFixed(casas).replace(".", ",");
-  const linhas = ["hora;circunferencia_px;percentual_do_padrao;forma_pct;tolerancia_pct;resultado"];
+  const linhas = ["hora;circunferencia_px;percentual_do_padrao;forma_pct;tolerancia_pct;tolerancia_forma_pct;resultado;situacao_real;conferencia"];
   for (const r of historico) {
     linhas.push([r.hora, num(r.perimetro, 1), num(r.percentual, 2), (r.forma ? num(r.forma, 1) : ""),
-      num(r.tolerancia, 1), r.aprovada ? "APROVADA" : "REPROVADA"].join(";"));
+      num(r.tolerancia, 1), (r.toleranciaForma ? num(r.toleranciaForma, 1) : ""),
+      r.aprovada ? "APROVADA" : "REPROVADA", r.real || "", conferir(r)].join(";"));
   }
   // o ﻿ no início (BOM) faz o Excel reconhecer os acentos
   const arquivo = new Blob(["﻿" + linhas.join("\n")], { type: "text/csv;charset=utf-8" });

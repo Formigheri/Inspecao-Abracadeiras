@@ -64,6 +64,16 @@ def circularidade(contorno):
     return 4 * math.pi * area / comprimento ** 2
 
 
+def razao_dos_eixos(contorno):
+    """Menor eixo dividido pelo maior da elipse ajustada ao contorno (1 = redondo).
+
+    O perímetro de uma cinta não muda quando ela é amassada, mas a forma muda,
+    então esta razão pega a deformação que o perímetro não pega.
+    """
+    (_, _), (eixo_a, eixo_b), _ = cv2.fitEllipse(suavizar(contorno).astype(np.float32))
+    return min(eixo_a, eixo_b) / max(eixo_a, eixo_b)
+
+
 def pontos_do_contorno(contorno, maximo=300):
     """Lista enxuta de pontos [x, y] do contorno, para o front desenhar o formato real."""
     pontos = suavizar(contorno)
@@ -99,8 +109,8 @@ def achar_furo(imagem, fundo_claro=True, limiar=0, area_minima=800):
 def medir_peca(imagem, fundo_claro=True, limiar=0):
     """Mede a circunferência do furo da peça, em pixels.
 
-    Devolve um dicionário com perímetro, área, circularidade e os pontos
-    do contorno, ou None se não achar o furo.
+    Devolve um dicionário com perímetro, área, circularidade, razão dos eixos
+    e os pontos do contorno, ou None se não achar o furo.
     """
     furo = achar_furo(imagem, fundo_claro, limiar)
     if furo is None:
@@ -109,6 +119,7 @@ def medir_peca(imagem, fundo_claro=True, limiar=0):
         "perimetro_px": perimetro(furo),
         "area_px": cv2.contourArea(furo),
         "circularidade": circularidade(furo),
+        "razao_eixos": razao_dos_eixos(furo),
         "contorno": pontos_do_contorno(furo),
     }
 
@@ -118,6 +129,17 @@ def percentual_circunferencia(perimetro_px, perimetro_padrao_px):
     return 100 * perimetro_px / perimetro_padrao_px
 
 
-def aprovada(percentual, tolerancia_pct):
-    """A peça passa se o percentual ficar dentro de 100% ± a tolerância."""
-    return abs(percentual - 100) <= tolerancia_pct
+def forma_relativa(razao, razao_padrao):
+    """Razão dos eixos da peça em relação à do padrão (100 = mesma forma)."""
+    return 100 * razao / razao_padrao
+
+
+def aprovada(percentual, tolerancia_pct, forma=None, tolerancia_forma=None):
+    """A peça passa se o percentual ficar dentro de 100% ± a tolerância e,
+    quando a forma é informada, se ela não ficar mais achatada que o padrão
+    além da tolerância de forma."""
+    if abs(percentual - 100) > tolerancia_pct:
+        return False
+    if forma is not None and forma < 100 - tolerancia_forma:
+        return False
+    return True
